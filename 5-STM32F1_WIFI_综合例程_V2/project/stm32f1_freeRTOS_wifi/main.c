@@ -870,9 +870,11 @@ exit:
 
 
 rtos_tcb os_tcb;
+rtos_tcb os_start_tcb;
+
 #define WIFI_TASK_PRIO	10
 #define WIFI_STACK_SIZE	1024
-rtos_stack wifi_task_stack[WIFI_STACK_SIZE];
+//rtos_stack wifi_task_stack[WIFI_STACK_SIZE];
 void wifi_process_task(void *para)
 {
 
@@ -890,6 +892,19 @@ void wifi_process_task(void *para)
 
 }
 
+void wifi_start_task(void *arg)
+{
+    printf("wifi start task entry\r\n");
+    wifi_start(&wifi_cb);
+    printf("wifi start end\r\n");
+//    
+    while(1)
+    {
+        rtos_delay_ticks(1000);
+        printf("waiting\r\n");
+    }
+}
+
 int main()
 {
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
@@ -901,8 +916,12 @@ int main()
     HW_DEBUG("Marvell88w8801 FreeRTOS wifi testing......\n");
     rtos_init();
     rtos_cre_task(wifi_process_task,NULL,&os_tcb,"wifi task",
-                  &wifi_task_stack[WIFI_STACK_SIZE-1],
-                  &wifi_task_stack[0],WIFI_STACK_SIZE,WIFI_TASK_PRIO,0);
+                  NULL,
+                  NULL,WIFI_STACK_SIZE,WIFI_TASK_PRIO,0);
+
+    rtos_cre_task(wifi_start_task,NULL,&os_start_tcb,"wifi start",
+                  NULL,
+                  NULL, WIFI_STACK_SIZE,11,0);
     rtos_start();
     while(1);
 
