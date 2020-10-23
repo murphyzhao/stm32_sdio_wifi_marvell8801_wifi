@@ -873,7 +873,7 @@ rtos_tcb os_tcb;
 rtos_tcb os_start_tcb;
 
 #define WIFI_TASK_PRIO	10
-#define WIFI_STACK_SIZE	1024
+#define WIFI_STACK_SIZE	2048
 //rtos_stack wifi_task_stack[WIFI_STACK_SIZE];
 void wifi_process_task(void *para)
 {

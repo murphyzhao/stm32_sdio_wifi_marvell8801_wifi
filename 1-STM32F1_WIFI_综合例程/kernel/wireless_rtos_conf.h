@@ -12,7 +12,7 @@
 /* MAX prio */
 #define CONF_RTOS_MAX_PRIO	32
 /* memory size */
-#define CONF_RTOS_MEM_CNT_SIZE	10
+#define CONF_RTOS_MEM_CNT_SIZE	40
 #define CONF_RTOS_MEM_BLK_SIZE	512
 #define CONF_RTOS_MEM_SIZE	(CONF_RTOS_MEM_CNT_SIZE*CONF_RTOS_MEM_BLK_SIZE)
 /* IDLE task stack size */
@@ -23,7 +23,7 @@
 //#define IOT_LWOS_ENABLE	0
 //#define USOCII_ENABLE		0
 //#define USOCIII_ENABLE		0
-//#define FREERTOS_ENABLE	0
+//#define FREERTOS_ENABLE	1
 //#define RTTHREAD_ENABLE	0
 
 #endif

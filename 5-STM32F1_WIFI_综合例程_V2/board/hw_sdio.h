@@ -54,6 +54,7 @@
 
 
 /* SDIO CLK·ÖÆµ */
+#define SDIO_CLK_300KHZ	238
 #define SDIO_CLK_400KHZ	0xB2
 #define SDIO_CLK_1MHZ		0x46
 #define SDIO_CLK_24MHZ	0x1

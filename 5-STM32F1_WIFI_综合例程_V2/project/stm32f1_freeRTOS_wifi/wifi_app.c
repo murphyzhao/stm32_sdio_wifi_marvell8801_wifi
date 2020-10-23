@@ -2,7 +2,11 @@
 
 uint8_t wifi_start(wifi_cb_t *cb)
 {
-    hw_sdio_init();
+    if (hw_sdio_init() != HW_ERR_OK)
+    {
+        printf("sdio init failed! halt...\r\n");
+        while(1);
+    }
 
     mrvl88w8801_init(cb);
     return WIFI_ERR_OK;

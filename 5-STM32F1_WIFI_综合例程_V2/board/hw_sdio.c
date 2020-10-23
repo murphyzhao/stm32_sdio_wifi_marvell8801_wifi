@@ -72,7 +72,7 @@ uint8_t hw_sdio_init()
     SDIO_DeInit();
     /* HCLK = 72MHz, SDIOCLK = 72MHz, SDIO_CK = HCLK/(178 + 2) = 400 KHz */
     SDIO_InitStructure.SDIO_ClockDiv = SDIO_CLK_400KHZ;
-    SDIO_InitStructure.SDIO_ClockEdge = SDIO_ClockEdge_Rising ;
+    SDIO_InitStructure.SDIO_ClockEdge = SDIO_ClockEdge_Rising;// SDIO_ClockEdge_Falling; // SDIO_ClockEdge_Rising ;
     SDIO_InitStructure.SDIO_ClockBypass = SDIO_ClockBypass_Disable;
     SDIO_InitStructure.SDIO_ClockPowerSave = SDIO_ClockPowerSave_Disable;
     SDIO_InitStructure.SDIO_BusWide = SDIO_BusWide_1b;
@@ -1088,43 +1088,43 @@ static uint8_t hw_sdio_check_err()
     {
         SDIO_ClearFlag(SDIO_FLAG_CCRCFAIL);
         err++;
-        HW_DEBUG("%s: CMD%d CRC failed!\n", __func__, SDIO->CMD & SDIO_CMD_CMDINDEX);
+        HW_DEBUG("L:%d, %s: CMD%d CRC failed!\n", __LINE__, __func__, SDIO->CMD & SDIO_CMD_CMDINDEX);
     }
     if (SDIO_GetFlagStatus(SDIO_FLAG_CTIMEOUT) == SET)
     {
         SDIO_ClearFlag(SDIO_FLAG_CTIMEOUT);
         err++;
-        HW_DEBUG("%s: CMD%d timeout!\n", __func__, SDIO->CMD & SDIO_CMD_CMDINDEX);
+        HW_DEBUG("L:%d, %s: CMD%d timeout!\n", __LINE__, __func__, SDIO->CMD & SDIO_CMD_CMDINDEX);
     }
     if (SDIO_GetFlagStatus(SDIO_FLAG_DCRCFAIL) == SET)
     {
         SDIO_ClearFlag(SDIO_FLAG_DCRCFAIL);
         err++;
-        HW_DEBUG("%s: data CRC failed!\n", __func__);
+        HW_DEBUG("L:%d, %s: data CRC failed!\n", __LINE__, __func__);
     }
     if (SDIO_GetFlagStatus(SDIO_FLAG_DTIMEOUT) == SET)
     {
         SDIO_ClearFlag(SDIO_FLAG_DTIMEOUT);
         err++;
-        HW_DEBUG("%s: data timeout!\n", __func__);
+        HW_DEBUG("L:%d, %s: data timeout!\n", __LINE__, __func__);
     }
     if (SDIO_GetFlagStatus(SDIO_FLAG_STBITERR) == SET)
     {
         SDIO_ClearFlag(SDIO_FLAG_STBITERR);
         err++;
-        HW_DEBUG("%s: start bit error!\n", __func__);
+        HW_DEBUG("L:%d, %s: start bit error!\n", __LINE__, __func__);
     }
     if (SDIO_GetFlagStatus(SDIO_FLAG_TXUNDERR) == SET)
     {
         SDIO_ClearFlag(SDIO_FLAG_TXUNDERR);
         err++;
-        HW_DEBUG("%s: data underrun!\n", __func__);
+        HW_DEBUG("L:%d, %s: data underrun!\n", __LINE__, __func__);
     }
     if (SDIO_GetFlagStatus(SDIO_FLAG_RXOVERR) == SET)
     {
         SDIO_ClearFlag(SDIO_FLAG_RXOVERR);
         err++;
-        HW_DEBUG("%s: data overrun!\n", __func__);
+        HW_DEBUG("L:%d, %s: data overrun!\n", __LINE__, __func__);
     }
 
     return err;
@@ -1180,9 +1180,11 @@ static uint8_t hw_sdio_cmd3(uint32_t para,uint32_t *resp)
 static uint8_t hw_sdio_cmd5(uint32_t para,uint32_t *resp,uint32_t retry_max)
 {
     uint32_t index;
-    uint32_t response;
+    uint32_t response = 0;
     uint8_t error_status;
     SDIO_CmdInitTypeDef SDIO_CmdInitStructure;
+    
+    retry_max = 6;
 
     HW_ENTER();
     SDIO_CmdInitStructure.SDIO_Argument = para;
@@ -1197,14 +1199,21 @@ static uint8_t hw_sdio_cmd5(uint32_t para,uint32_t *resp,uint32_t retry_max)
         while (SDIO_GetFlagStatus(SDIO_FLAG_CMDACT) == SET);
         error_status = hw_sdio_check_err();
 
-        if (HW_ERR_OK != error_status)
+        if ((HW_ERR_OK != error_status) && (1 != error_status)) // ignore cmd5 cmd crc error
         {
             continue;
         }
+        
+        if (error_status == 1)
+        {
+            error_status = 0; // ignore cmd5 cmd crc error for ln
+            HW_DEBUG("[Note] Ignore CMD5 CRC error!\r\n");
+        }
+
         response = SDIO_GetResponse(SDIO_RESP1);
 
         /* ≈–∂œ «∑ÒOK */
-        if(C_IN_R4(response))
+//        if(C_IN_R4(response)) // ignore cmd5 respones`s 'C' bit.
         {
             if (resp)
             {
