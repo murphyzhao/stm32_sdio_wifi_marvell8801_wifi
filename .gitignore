@@ -1,11 +1,5 @@
 *.o
-*.so
-*.a
-*lwip_unittests.xml
-*.suo
-*.log
-.depend
-*/project/*/DebugConfig
-*/project/*/Listings
-*/project/*/Objects
-*/project/*/*uvguix.*
+*/project/*/DebugConfig/*
+*/project/*/Listings/*
+*/project/*/Objects/*
+*/project/*/*uvguix*
