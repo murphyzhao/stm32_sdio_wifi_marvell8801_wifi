@@ -1182,7 +1182,7 @@ void wifi_start_task(void *arg)
         rtos_delay_ticks(100);
         printf("waiting:%d\r\n", send_cnt);
 
-#if 0
+#if 1
         for (int i = 0; i < sizeof(test_buf); i++)
         {
             test_buf[i] = i;
