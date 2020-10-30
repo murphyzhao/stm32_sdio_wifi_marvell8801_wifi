@@ -3,6 +3,9 @@
 #include "wifi_app.h"
 #include "cJSON.h"
 
+#include <stdio.h>
+#include <stdint.h>
+
 extern uint32_t rtos_ticks;
 extern void sys_check_timeouts(void);
 uint32_t sys_now(void)
@@ -905,6 +908,9 @@ rtos_tcb os_start_tcb;
 #define   URSDIO_FUNC1_INT_RXCMPL    0x40
 #define   URSDIO_FUNC1_HOST_TX_FLAG  0x80
 
+#define LNWLAN_MAX_BUFSZ                         2048    /* Maximum size of a sdio dma buffer */
+#define FMW_HEADER_LEN                      4
+
 /* bit mask */
 #define BIT9                                    (1 << 9)
 #define BIT8                                    (1 << 8)
@@ -931,7 +937,7 @@ rtos_tcb os_start_tcb;
 
 int lnwlan_sdio_intr_set(uint8_t enable) // 1: enable; 0: disable
 {
-    u8 val;
+    uint8_t val;
     int ret;
     uint8_t resp;
 
@@ -942,7 +948,7 @@ int lnwlan_sdio_intr_set(uint8_t enable) // 1: enable; 0: disable
         val = 0;
 
     // 0x14: host interrupt enable(data1), set SDIO_HOST_INT_ENA bit[0]
-    ret = hw_sdio_cmd52(SDIO_EXCU_WRITE, SDIO_FUNC_1, URSDIO_FUNC1_HOST_INT_ENA, &val, &resp);
+    ret = hw_sdio_cmd52(SDIO_EXCU_WRITE, SDIO_FUNC_1, URSDIO_FUNC1_HOST_INT_ENA, val, &resp);
     if (HW_ERR_OK != ret)
     {
         printf("L:%d, hw_sdio_cmd52 error\r\n", __LINE__);
@@ -964,14 +970,14 @@ int lnwlan_sdio_intr_set(uint8_t enable) // 1: enable; 0: disable
 
     // salve to master interrupt enable, set SDIO_HOST_S2M_MB_ENA_REG1 bit[4-7]
     // reg: 0x68; value: 0xf0
-    ret = hw_sdio_cmd52(SDIO_EXCU_WRITE, SDIO_FUNC_1, URSDIO_FUNC1_HOST_S2M_MB_ENA_REG1, &val, &resp);
+    ret = hw_sdio_cmd52(SDIO_EXCU_WRITE, SDIO_FUNC_1, URSDIO_FUNC1_HOST_S2M_MB_ENA_REG1, val, &resp);
     if (HW_ERR_OK != ret)
     {
         printf("L:%d, hw_sdio_cmd52 error\r\n", __LINE__);
     }
     printf("CMD52 0x68 rsp:0x%x\r\n", resp);
 
-#if 0
+#if 1
     if (enable)
         val = 0x03;
     else
@@ -979,9 +985,9 @@ int lnwlan_sdio_intr_set(uint8_t enable) // 1: enable; 0: disable
 
     /*
      * set chip interrupt
-    *  reg: 0x04, value: 0x07
+    *  reg: 0x04, value: 0x03
      */
-    ret = hw_sdio_cmd52(SDIO_EXCU_WRITE, SDIO_FUNC_0, URSDIO_FUNC1_REGISTER_MASK, &val, &resp);
+    ret = hw_sdio_cmd52(SDIO_EXCU_WRITE, SDIO_FUNC_0, URSDIO_FUNC1_REGISTER_MASK, val, &resp);
     if (HW_ERR_OK != ret)
     {
         printf("L:%d, hw_sdio_cmd52 error\r\n", __LINE__);
@@ -1025,60 +1031,104 @@ int lnwlan_sdio_intr_get(uint8_t * intrstatus)
     if (!intrstatus)
         return -1;
 
-//    if (sdiodev->bus_if->state == WLAND_BUS_DOWN) {
-//        /*
-//         * disable interrupt
-//         */
-//        *intrstatus = 0;
-//        LNWLAN_LOGE("Bus is down!\n");
-//    } else {
-//        ret = sdiohost_request_byte(sdiodev, SDIOH_READ, URSDIO_FUNC1_INT_STATUS, intrstatus);
     hw_sdio_cmd52(SDIO_EXCU_READ, SDIO_FUNC_1, URSDIO_FUNC1_INT_STATUS, 0, intrstatus);
+
+    printf("interrupt status: 0x%x\r\n",(uint8_t) * intrstatus);
+
+    return ret;
+}
+
+static uint8_t test_recv_buf[512];
+
+void hexdump(uint8_t *info, void *buff, uint32_t count)
+{
+    uint32_t i;
+    uint8_t *pbuff = (uint8_t *)buff;
+    HW_DEBUG("%s", info);
+    for(i = 0; i < count; i++){
+        HW_DEBUG("%02x ", *(pbuff+i));
+    }
+    HW_DEBUG("\r\n");
+}
+
+int lnwlan_sdio_readframes(void)
+{
+    int ret = 0;
+    uint8_t size_l = 0, size_m = 0, size_h = 0;
+    uint16_t rcv_len = 0;
+    uint16_t size = 0;
+    uint8_t rsp = 0;
+
+    ret = hw_sdio_cmd52(SDIO_EXCU_READ, SDIO_FUNC_1, URSDIO_FUNC1_RPKTLEN_LO, 0, &size_l);
+    if (ret) {
+        HW_DEBUG("Read URSDIO_FUNC1_RPKTLEN_LO failed!\n");
+        goto done;
+    }
+
+    ret = hw_sdio_cmd52(SDIO_EXCU_READ, SDIO_FUNC_1, URSDIO_FUNC1_RPKTLEN_MI, 0, &size_m);
+    if (ret) {
+        HW_DEBUG("Read URSDIO_FUNC1_RPKTLEN_MI failed!\n");
+        goto done;
+    }
+
+    ret = hw_sdio_cmd52(SDIO_EXCU_READ, SDIO_FUNC_1, URSDIO_FUNC1_RPKTLEN_HI, 0, &size_h);
+    if (ret) {
+        HW_DEBUG("Read URSDIO_FUNC1_RPKTLEN_HI failed!\n");
+        goto done;
+    }
+    size = size_l | size_m << 8 | size_h << 16;
+
+//    if ((size > LNWLAN_MAX_BUFSZ) || (size < FMW_HEADER_LEN)) {
+//        HW_DEBUG("received buffer is invalid(size:%d) and go out.\n", size);
+//        goto done;
 //    }
 
-    printf("Enter(interrupt status: 0x%x)\r\n",(uint8_t) * intrstatus);
+    HW_DEBUG("<== received buffer size: %d\n", size);
 
+    if (((uint32_t)test_recv_buf % 4) != 0)
+    {
+        HW_DEBUG("recv buf not 4-align\n");
+        goto done;
+    }
+
+    ret = sdiohost_request_bytes(SDIOH_READ, test_recv_buf, size);
+    if (ret) {
+        HW_DEBUG("SDIO master read data failed! \n");
+        return ret;
+    }
+    
+    // send 0x68 to clear data1 interrupt
+    ret = hw_sdio_cmd52(SDIO_EXCU_READ, SDIO_FUNC_1, URSDIO_FUNC1_HOST_S2M_MB_ENA_REG1, 0, &rsp);
+    if (ret) {
+        HW_DEBUG("SDIO master send 0x68 failed! \n");
+        return ret;
+    }
+    
+    HW_DEBUG("SDIO master send 0x68 rsp:0x%x \n", rsp);
+
+    rcv_len = (u16)(test_recv_buf[0] | ((test_recv_buf[1]&0x0f) << 8));
+    if(rcv_len > size) {
+        HW_DEBUG("SDIO master read payload_len invalid! rcv_len=%d, size=%d\n", rcv_len, size);
+        goto done;
+    }
+    hexdump((uint8_t *)"Master recv: \r\n", &test_recv_buf[2], rcv_len);
+
+    uint8_t val = 0x03;
+
+//    ret = hw_sdio_cmd52(SDIO_EXCU_WRITE, SDIO_FUNC_1, URSDIO_FUNC1_HOST_INT_ENA, val, &rsp);
+//    if (HW_ERR_OK != ret)
+//    {
+//        printf("L:%d, hw_sdio_cmd52 error\r\n", __LINE__);
+//    }
+//    printf("CMD52 write 0x14 rsp:0x%x\r\n", rsp);
+done:
     return ret;
 }
 
 static void lnwlan_sdiohost_irqhandler(void *func)
 {
-//    struct lnwlan_bus *bus_if = dev_get_drvdata(&func->dev);
-//    struct lnwlan_sdio_dev *sdiodev = bus_if->bus_priv.sdio;
-//    struct lnwlan_sdio *bus = sdiodev->bus;
     uint8_t intstatus = 0;
-    uint32_t prec;
-    struct sk_buff *pkt = NULL;
-    uint32_t flags = 0;
-
-//    if (!bus_if) {
-//        LNWLAN_LOGE("bus is null pointer, exiting\n");
-//        return;
-//    }
-
-//    if (bus_if->state == WLAND_BUS_DOWN) {
-//        LNWLAN_LOGE("bus is down. we have nothing to do\n");
-//        return;
-//    }
-
-    /*
-     * Disable additional interrupts
-     */
-//    if (!bus->intr) {
-//        LNWLAN_LOGD("isr w/o interrupt is disabled, so do nothing and return\n");
-//        return;
-//    }
-
-    /*
-     * Count the interrupt call
-     */
-//    bus->sdcnt.intrcount++;
-
-//    bus->intdis = true;
-
     lnwlan_sdio_intr_get(&intstatus);
-
-//    atomic_set(&bus->intstatus, intstatus);
 
     printf("sdio_intstatus:%x\r\n", intstatus);
 
@@ -1086,36 +1136,23 @@ static void lnwlan_sdiohost_irqhandler(void *func)
      * On frame indication, read available frames
      * SDIO HOST IIR REG BIT0
      */
-    if (intstatus & I_AHB2SDIO) {
-//        pkt = lnwlan_sdio_readframes(bus);
-        // Send readover
+    if (intstatus & I_AHB2SDIO)
+    {
         printf("Here, host should read data from sdio card\r\n");
-
+        lnwlan_sdio_readframes();
+        // Send readover
     } else if (intstatus & I_ERROR) { // AHB Error
-        u8 val = I_ERROR;
-
 //        sdiohost_request_byte(bus->sdiodev, SDIOH_WRITE, URSDIO_FUNC1_INT_PENDING, &val);
         printf("int_error!\r\n");
     } else {
         printf("No Interrupt.\r\n");
     }
 
-//    if (pkt) {
-//        prec = prio2prec((pkt->priority & PRIOMASK));
-//        dhd_os_sdlock_rxq(bus, &flags);
-//        if (lnwlan_enter_queue_by_priority(bus->sdiodev->dev, &bus->rxq, pkt, prec)) {
-//            WAKE_RX_WORK(bus);
-//            printf("IRQ Wake up RX Work, bus->rx_dpc_tskcnt=%d\r\n", atomic_read(&bus->rx_dpc_tskcnt));
-//            printf("rxq_len=%d\r\n", lnwlan_skb_queue_len(&bus->rxq, ~bus->flowcontrol));
-//        }
-//        dhd_os_sdunlock_rxq(bus, &flags);
-//    }
     printf( "IRQ schedule work Done\r\n");
 }
 
 void wifi_process_task(void *para)
 {
-
     while(1)
     {
         if(SDIO_GetITStatus(SDIO_IT_SDIOIT) == SET)
@@ -1126,22 +1163,16 @@ void wifi_process_task(void *para)
             printf("==> SDIO IT\r\n");
         }
 
-        if(!wifi_init_status)
-            sys_check_timeouts();
+//        if(!wifi_init_status)
+//            sys_check_timeouts();
     }
-
 }
-
-#include <stdio.h>
-#include <stdint.h>
 
 static uint8_t test_buf[256 + 4] = "DataFromHost";
 
 void wifi_start_task(void *arg)
 {
     wifi_start(&wifi_cb);
-
-    uint8_t intrstatus;
     uint8_t send_cnt = 0;
     uint32_t send_data_len = 11;
 
@@ -1151,13 +1182,19 @@ void wifi_start_task(void *arg)
         rtos_delay_ticks(100);
         printf("waiting:%d\r\n", send_cnt);
 
-        memset(test_buf, 'M', sizeof(test_buf));
+#if 0
+        for (int i = 0; i < sizeof(test_buf); i++)
+        {
+            test_buf[i] = i;
+        }
 
         send_data_len = send_cnt;
         test_buf[0] = (uint8_t)(send_data_len&0x000000FF);
         test_buf[1] = (uint8_t)((send_data_len >> 8) & 0x0000000F);
         test_buf[2] = (uint8_t)send_cnt;
+        test_buf[3] = 'M';
         sdiohost_request_bytes(SDIOH_WRITE, test_buf, send_data_len + 2);
+#endif
     }
 }
 

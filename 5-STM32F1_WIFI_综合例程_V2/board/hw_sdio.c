@@ -150,6 +150,7 @@ uint8_t hw_sdio_init()
     hw_sdio_get_sdio_card_cap(&_card_cap);
     
     /* 切换到4 bus width,切换24M clk */
+    // func0 cccr: 0x07
     hw_sdio_set_bus_width(SDIO_BUS_WIDTH_4);
 
 //    SDIO_InitStructure.SDIO_ClockDiv = SDIO_CLK_24MHZ;
@@ -174,20 +175,23 @@ uint8_t hw_sdio_init()
     for(func_index = SDIO_FUNC_1; func_index <= phw_sdio_core-> func_total_num; func_index++)
     {
         HW_DEBUG("--> enable func io for cccr IOEx, index:%d, total func:%d\r\n", func_index, phw_sdio_core-> func_total_num);
+        // func0, 0x02, 0x03
         hw_sdio_enable_func(func_index);
     }
 
     /* 使能中断 */
     hw_sdio_enable_mgr_int();
-    for(func_index = SDIO_FUNC_1; func_index <= phw_sdio_core-> func_total_num; func_index++)
+    for(func_index = SDIO_FUNC_1; func_index < phw_sdio_core-> func_total_num; func_index++)
     {
         HW_DEBUG("--> enable func io for cccr IENx, index:%d, total func:%d\r\n", func_index, phw_sdio_core-> func_total_num);
+        // func0, 0x04
         hw_sdio_enable_func_int(func_index);
     }
 
     /* 设置block size */
     for(func_index = SDIO_FUNC_1; func_index <= phw_sdio_core-> func_total_num; func_index++)
     {
+        // func0
         hw_sdio_set_blk_size(func_index,SDIO_DEFAULT_BLK_SIZE);
     }
     HW_LEAVE();
@@ -507,6 +511,7 @@ uint8_t hw_sdio_enable_mgr_int()
     }
     else
     {
+        HW_DEBUG("sdio int mgr func0 read 0x04 failed\r\n");
         HW_LEAVE();
         return HW_ERR_SDIO_ENABLE_MGR_INT_FAIL;
     }
@@ -514,6 +519,7 @@ uint8_t hw_sdio_enable_mgr_int()
     /* 重新写回去 */
     if(hw_sdio_cmd52(SDIO_EXCU_WRITE,SDIO_FUNC_0,SDIO_CCCR_INT_ENABLE,enable,NULL))
     {
+        HW_DEBUG("sdio int mgr func0 write 0x04 failed\r\n");
         HW_LEAVE();
         return HW_ERR_SDIO_ENABLE_MGR_INT_FAIL;
     }
@@ -1445,6 +1451,108 @@ static uint8_t hw_sdio_cmd53_read(uint8_t func_num,uint32_t address, uint8_t inc
     DMA_ClearFlag(DMA2_FLAG_TC4);								/* 清除DMA2 channel4发送完成的标志 */
     DMA_DeInit(DMA2_Channel4);									/* 反初始化DMA2 channel4 */
     DMA_Cmd(DMA2_Channel4, DISABLE);							/* 关闭DMA2 channel4 */
+
+    return HW_ERR_OK;
+}
+
+static uint8_t hw_sdio_cmd53_read1(uint8_t func_num,uint32_t address, uint8_t incr_addr, uint8_t *buf,uint32_t size,uint16_t cur_blk_size)
+{
+    uint8_t error_status;
+    uint32_t remain_size = size;
+    SDIO_DataInitTypeDef SDIO_DataInitStructure;
+    SDIO_CmdInitTypeDef SDIO_CmdInitStructure;
+    DMA_InitTypeDef DMA_InitStructure;
+    hw_memset(&SDIO_DataInitStructure,0,sizeof(SDIO_DataInitTypeDef));
+    hw_memset(&SDIO_CmdInitStructure,0,sizeof(SDIO_CmdInitStructure));
+    hw_memset(&DMA_InitStructure,0,sizeof(DMA_InitStructure));
+
+    /* 2.谴织DMA */
+    DMA_DeInit(DMA2_Channel4);
+    DMA_Cmd(DMA2_Channel4, DISABLE);
+    DMA_ClearFlag(DMA2_FLAG_TC4 | DMA2_FLAG_TE4 | DMA2_FLAG_HT4 | DMA2_FLAG_GL4);
+
+    /* DMA2 Channel4 Config */
+    DMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)&SDIO->FIFO;;
+    DMA_InitStructure.DMA_MemoryBaseAddr = (uint32_t)buf;
+    DMA_InitStructure.DMA_DIR = DMA_DIR_PeripheralSRC;
+    if(remain_size%cur_blk_size)
+    {
+        DMA_InitStructure.DMA_BufferSize = (remain_size/cur_blk_size+1)*cur_blk_size/4;
+    }
+    else
+    {
+        DMA_InitStructure.DMA_BufferSize = (remain_size/cur_blk_size)*cur_blk_size/4;
+    }
+
+    DMA_InitStructure.DMA_PeripheralInc = DMA_PeripheralInc_Disable;
+    DMA_InitStructure.DMA_MemoryInc = DMA_MemoryInc_Enable;
+    DMA_InitStructure.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Word;
+    DMA_InitStructure.DMA_MemoryDataSize = DMA_MemoryDataSize_Word;
+    DMA_InitStructure.DMA_Mode = DMA_Mode_Normal;
+    DMA_InitStructure.DMA_Priority = DMA_Priority_VeryHigh;
+    DMA_InitStructure.DMA_M2M = DMA_M2M_Disable;
+    DMA_Init(DMA2_Channel4, &DMA_InitStructure);
+    /* DMA2 Channel4 enable */
+    DMA_Cmd(DMA2_Channel4, ENABLE);
+    /* 3.皮變SDIO data蕖俟庭 */
+    SDIO_DataInitStructure.SDIO_DataTimeOut = SDIO_24M_DATATIMEOUT;
+    if(remain_size%cur_blk_size)
+    {
+        SDIO_DataInitStructure.SDIO_DataLength = (remain_size/cur_blk_size+1)*cur_blk_size;
+    }
+    else
+    {
+        SDIO_DataInitStructure.SDIO_DataLength = (remain_size/cur_blk_size)*cur_blk_size;
+    }
+
+    hw_sdio_set_dblocksize(&SDIO_DataInitStructure.SDIO_DataBlockSize,cur_blk_size);
+    SDIO_DataInitStructure.SDIO_TransferDir = SDIO_TransferDir_ToSDIO;
+    SDIO_DataInitStructure.SDIO_TransferMode = SDIO_TransferMode_Block;
+
+    SDIO_DataInitStructure.SDIO_DPSM = SDIO_DPSM_Enable;
+    SDIO_DataConfig(&SDIO_DataInitStructure);
+
+    SDIO_ClearFlag(SDIO_FLAG_CMDREND);
+    /* 1.注虓CMD53 */
+    /* CMD53謩募庐訋私俦式为 */
+    /* |--RW FLAG--|--FUNC NUM--|--BLK MODE--|--OP MODE--|--REG ADDR--|--BYTE/BLK CNT--| */
+    /* |--1  BYTE--|--3   BYTE--|--1   BYTE--|--1  BYTE--|--17  BYTE--|--9      BYTE --| */
+    SDIO_CmdInitStructure.SDIO_Argument |= 0x0;					/* CMD53謩R/W read謩flag */
+    SDIO_CmdInitStructure.SDIO_Argument |= func_num << 28;	/* FUNC */
+    SDIO_CmdInitStructure.SDIO_Argument |= 0x08000000;			/* Block mode */
+    SDIO_CmdInitStructure.SDIO_Argument |= incr_addr ? 0x04000000 : 0x0;	/* OP MODE :1.譂斩 0,趯吱謽址 */
+    SDIO_CmdInitStructure.SDIO_Argument |= address << 9;		/* REG ADDR,要写色謩謽址 */
+
+    if(remain_size%cur_blk_size)
+    {
+        SDIO_CmdInitStructure.SDIO_Argument |= (remain_size/cur_blk_size+1);
+    }
+    else
+    {
+        SDIO_CmdInitStructure.SDIO_Argument |= remain_size/cur_blk_size;
+    }
+
+    SDIO_CmdInitStructure.SDIO_CmdIndex = SDIO_CMD53;
+    SDIO_CmdInitStructure.SDIO_Response = SDIO_Response_Short;
+    SDIO_CmdInitStructure.SDIO_Wait = SDIO_Wait_No;
+    SDIO_CmdInitStructure.SDIO_CPSM = SDIO_CPSM_Enable;
+    SDIO_SendCommand(&SDIO_CmdInitStructure);
+
+    /* 謭战注虓为詨矛尧葤茞讖藝乇詯窄铣雍屎 */
+    while (SDIO_GetFlagStatus(SDIO_FLAG_CMDREND) == RESET);
+    error_status = hw_sdio_check_err();
+
+    if (HW_ERR_OK != error_status)
+    {
+        return  HW_ERR_SDIO_CMD53_FAIL;
+    }
+    SDIO_ClearFlag(SDIO_FLAG_CMDREND);
+
+    while (DMA_GetFlagStatus(DMA2_FLAG_TC4) == RESET); 	/* 謭战DMA注虓詨佴 */
+    SDIO_ClearFlag(SDIO_FLAG_DATAEND);						/* 去越注虓为詨要志 */
+    DMA_ClearFlag(DMA2_FLAG_TC4);								/* 去越DMA2 channel4注虓为詨謩要志 */
+    DMA_DeInit(DMA2_Channel4);									/* 状缘始郫DMA2 channel4 */
+    DMA_Cmd(DMA2_Channel4, DISABLE);							/* 跇視DMA2 channel4 */
 
     return HW_ERR_OK;
 }
