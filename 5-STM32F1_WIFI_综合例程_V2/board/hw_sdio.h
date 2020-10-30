@@ -163,6 +163,7 @@ uint8_t hw_sdio_init(void);
 uint8_t hw_chip_reset(void);
 uint8_t hw_sdio_get_cccr_version(uint8_t *cccr_version);
 uint8_t hw_sdio_get_sdio_version(uint8_t *sdio_version);
+uint8_t hw_sdio_get_sdio_card_cap(uint8_t *sdio_cap);
 uint8_t hw_sdio_enable_func(uint8_t func_num);
 uint8_t hw_sdio_disable_func(uint8_t func_num);
 uint8_t hw_sdio_enable_mgr_int(void);

@@ -1,5 +1,17 @@
 #include "wifi_app.h"
 
+uint8_t ln_sdio_slave_test(void)
+{
+            /* Get next block length */
+//    hw_sdio_cmd52(SDIO_EXCU_READ,SDIO_FUNC_1,READ_BASE_0_REG,0,&fw_req_temp_size);
+//    fw_req_size |= fw_req_temp_size;
+//    hw_sdio_cmd52(SDIO_EXCU_READ,SDIO_FUNC_1,READ_BASE_1_REG,0,&fw_req_temp_size);
+//    fw_req_size |= (fw_req_temp_size<<8);
+//    hw_sdio_cmd53(SDIO_EXCU_WRITE,SDIO_FUNC_1,control_io_port,0,(uint8_t *)fw_data,fw_req_size);
+}
+
+extern int lnwlan_sdio_intr_set(uint8_t enable); // 1: enable; 0: disable
+
 uint8_t wifi_start(wifi_cb_t *cb)
 {
     if (hw_sdio_init() != HW_ERR_OK)
@@ -7,8 +19,11 @@ uint8_t wifi_start(wifi_cb_t *cb)
         printf("sdio init failed! halt...\r\n");
         while(1);
     }
+    
+    lnwlan_sdio_intr_set(1);
 
-    mrvl88w8801_init(cb);
+    ln_sdio_slave_test();
+//    mrvl88w8801_init(cb);
     return WIFI_ERR_OK;
 }
 

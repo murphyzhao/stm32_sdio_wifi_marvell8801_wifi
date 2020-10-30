@@ -47,7 +47,7 @@ uint8_t hw_sdio_init()
 
     GPIO_InitTypeDef GPIO_InitStructure;
     SDIO_InitTypeDef SDIO_InitStructure;
-    //NVIC_InitTypeDef NVIC_InitStructure;
+    NVIC_InitTypeDef NVIC_InitStructure;
 
     HW_ENTER();
     hw_chip_reset();
@@ -129,6 +129,7 @@ uint8_t hw_sdio_init()
     }
 
     hw_sdio_parse_r6(cmd3_resp,&rca);
+    HW_DEBUG("RCA: %08x\r\n", rca);
 
     /* ·¢ËÍcmd7Ñ¡µØÖ· */
     cmd7_para = rca << 16;
@@ -140,38 +141,52 @@ uint8_t hw_sdio_init()
 
     /* »ñÈ¡CCCR°æ±¾ºÍSDIO°æ±¾ */
     hw_sdio_get_cccr_version(&phw_sdio_core->cccr_version);
+    HW_DEBUG("CCCR Version: 0x%x\r\n", phw_sdio_core->cccr_version);
+    
     hw_sdio_get_sdio_version(&phw_sdio_core->sdio_version);
+    HW_DEBUG("SDIO Version: 0x%x\r\n", phw_sdio_core->sdio_version);
 
+    uint8_t _card_cap;
+    hw_sdio_get_sdio_card_cap(&_card_cap);
+    
     /* ÇĞ»»µ½4 bus width,ÇĞ»»24M clk */
     hw_sdio_set_bus_width(SDIO_BUS_WIDTH_4);
-    SDIO_InitStructure.SDIO_ClockDiv = SDIO_CLK_24MHZ;
+
+//    SDIO_InitStructure.SDIO_ClockDiv = SDIO_CLK_24MHZ;
     SDIO_InitStructure.SDIO_BusWide = SDIO_BusWide_4b;
     SDIO_Init(&SDIO_InitStructure);
 
+    HW_DEBUG("Enter SDIO 4-line mode, 24MHz Card clk\r\n");
 
+    /*=====================================================*/
+    
     /* ¶ÁÈ¡Ã¿¸öfuncµÄCISÖ¸Õë²¢ÇÒ½âÎö */
-    for(func_index = 0; func_index < phw_sdio_core-> func_total_num; func_index++)
+    for(func_index = 0; func_index <= phw_sdio_core-> func_total_num; func_index++)
     {
         uint32_t cis_ptr;
         hw_sdio_get_cis_ptr(func_index,&cis_ptr);
         hw_sdio_cis_read_parse(func_index,cis_ptr);
+        
+        HW_DEBUG("--> fn:%d:0x%08x\r\n", func_index, cis_ptr);
     }
 
     /* enable Func */
-    for(func_index = SDIO_FUNC_1; func_index < phw_sdio_core-> func_total_num; func_index++)
+    for(func_index = SDIO_FUNC_1; func_index <= phw_sdio_core-> func_total_num; func_index++)
     {
+        HW_DEBUG("--> enable func io for cccr IOEx, index:%d, total func:%d\r\n", func_index, phw_sdio_core-> func_total_num);
         hw_sdio_enable_func(func_index);
     }
 
     /* Ê¹ÄÜÖĞ¶Ï */
     hw_sdio_enable_mgr_int();
-    for(func_index = SDIO_FUNC_1; func_index < phw_sdio_core-> func_total_num; func_index++)
+    for(func_index = SDIO_FUNC_1; func_index <= phw_sdio_core-> func_total_num; func_index++)
     {
+        HW_DEBUG("--> enable func io for cccr IENx, index:%d, total func:%d\r\n", func_index, phw_sdio_core-> func_total_num);
         hw_sdio_enable_func_int(func_index);
     }
 
     /* ÉèÖÃblock size */
-    for(func_index = SDIO_FUNC_1; func_index < phw_sdio_core-> func_total_num; func_index++)
+    for(func_index = SDIO_FUNC_1; func_index <= phw_sdio_core-> func_total_num; func_index++)
     {
         hw_sdio_set_blk_size(func_index,SDIO_DEFAULT_BLK_SIZE);
     }
@@ -210,6 +225,7 @@ uint8_t hw_sdio_get_cccr_version(uint8_t *cccr_version)
     if(hw_sdio_cmd52(SDIO_EXCU_READ,SDIO_FUNC_0,SDIO_CCCR_SDIO_VERSION,0,&version))
     {
         HW_LEAVE();
+        HW_DEBUG("[Fail][%s:%d]\r\n", __func__, __LINE__);
         return HW_ERR_SDIO_GET_VER_FAIL;
     }
 
@@ -250,10 +266,36 @@ uint8_t hw_sdio_get_sdio_version(uint8_t *sdio_version)
     if(hw_sdio_cmd52(SDIO_EXCU_READ,SDIO_FUNC_0,SDIO_CCCR_SDIO_VERSION,0,&version))
     {
         HW_LEAVE();
+        HW_DEBUG("[Fail][%s:%d]\r\n", __func__, __LINE__);
         return HW_ERR_SDIO_GET_VER_FAIL;
     }
 
     *sdio_version = phw_sdio_core->sdio_version = (version>>4) & 0xf;
+    HW_LEAVE();
+    return  HW_ERR_OK;
+}
+
+uint8_t hw_sdio_get_sdio_card_cap(uint8_t *sdio_cap)
+{
+    uint8_t cap;
+    HW_ENTER();
+    if(!sdio_cap)
+    {
+        HW_LEAVE();
+        return HW_ERR_SDIO_INVALID_PARA;
+    }
+
+    /* CMD52 */
+    if(hw_sdio_cmd52(SDIO_EXCU_READ, SDIO_FUNC_0, SDIO_CCCR_CARD_CAP, 0, &cap))
+    {
+        HW_LEAVE();
+        HW_DEBUG("[Fail][%s:%d]\r\n", __func__, __LINE__);
+        return HW_ERR_SDIO_GET_VER_FAIL;
+    }
+
+    *sdio_cap = cap;
+    HW_DEBUG("==> cap:0x%08x\r\n", cap);
+
     HW_LEAVE();
     return  HW_ERR_OK;
 }
@@ -479,6 +521,7 @@ uint8_t hw_sdio_enable_mgr_int()
     /* ¸üĞÂINT managerµÄ×´Ì¬ */
     phw_sdio_core->sdio_int_mgr = FUNC_INT_ENABLE;
 
+    HW_DEBUG("sdio int mgr inti pass\r\n");
     HW_LEAVE();
     return  HW_ERR_OK;
 }
@@ -640,6 +683,7 @@ uint8_t hw_sdio_set_bus_width(uint8_t bus_width)
     else
     {
         HW_LEAVE();
+        HW_DEBUG("[Fail][%s:%d]\r\n", __func__, __LINE__);
         return HW_ERR_SDIO_SET_BUS_WIDTH_FAIL;
     }
 
@@ -836,11 +880,12 @@ uint8_t hw_sdio_cmd52(uint8_t write,uint8_t func_num,uint32_t address,uint8_t pa
 ******************************************************************************/
 uint8_t hw_sdio_cmd53(uint8_t write, uint8_t func_num,uint32_t address, uint8_t incr_addr, uint8_t *buf,uint32_t size)
 {
-    uint16_t func_cur_blk_size;
+    uint16_t func_cur_blk_size = 256;
 
     if((phw_sdio_core->func)[func_num])
     {
         func_cur_blk_size = (phw_sdio_core->func)[func_num]->cur_blk_size;
+        printf("func blk size:%d\r\n", func_cur_blk_size);
         if(func_cur_blk_size == 0)
         {
             return HW_ERR_SDIO_BLK_SIZE_ZERO;
@@ -848,6 +893,7 @@ uint8_t hw_sdio_cmd53(uint8_t write, uint8_t func_num,uint32_t address, uint8_t 
     }
     else
     {
+        printf("HW_ERR_SDIO_INVALID_FUNC_NUM\r\n");
         return HW_ERR_SDIO_INVALID_FUNC_NUM;
     }
 
@@ -896,6 +942,8 @@ static uint8_t hw_sdio_parse_r6(uint32_t r6,uint32_t *rca)
         return HW_ERR_OK;
     }
     HW_LEAVE();
+    
+    HW_DEBUG("[Note] parse r6 failed!");
     return HW_ERR_SDIO_INVALID_PARA;
 }
 
@@ -910,8 +958,17 @@ static uint8_t hw_sdio_parse_r4(uint32_t r4)
     HW_ENTER();
     uint32_t index = 0;
 
+    if (C_IN_R4(r4) != 1)
+    {
+        HW_DEBUG("[Note] SDIO Card is not ready!\r\n");
+        return HW_ERR_SHELL_INVALID_PARA;
+    }
+    HW_DEBUG("[Note] SDIO Card is ready!\r\n");
+    
     phw_sdio_core->func_total_num = FUNC_NUM_IN_R4(r4);
-    for(index = 0; index < phw_sdio_core->func_total_num; index++)
+    HW_DEBUG("Supported func num: %d!\r\n", phw_sdio_core->func_total_num);
+
+    for(index = 0; index <= phw_sdio_core->func_total_num; index++)
     {
         (phw_sdio_core->func)[index] = &hw_sdio_func[index];
         hw_sdio_func[index].func_num = index;
@@ -945,11 +1002,13 @@ static uint8_t hw_sdio_cis_read_parse(uint8_t func_num,uint32_t cis_ptr)
     while (tpl_code != CISTPL_END)
     {
         hw_sdio_cmd52(SDIO_EXCU_READ,SDIO_FUNC_0, cis_ptr_temp++,0,&tpl_code);
+        HW_DEBUG("==> tpl_code:0X%x\n", tpl_code);
         if (tpl_code == CISTPL_NULL)
             continue;
 
         /* ±¾½áµãÊı¾İµÄ´óĞ¡ */
         hw_sdio_cmd52(SDIO_EXCU_READ,SDIO_FUNC_0, cis_ptr_temp++,0,&tpl_link);
+        HW_DEBUG("==> tpl_link:0X%x\n", tpl_link);
 
         for (index = 0; index < tpl_link; index++)
             hw_sdio_cmd52(SDIO_EXCU_READ,SDIO_FUNC_0, cis_ptr_temp + index,0,&data[index]);
@@ -1142,12 +1201,15 @@ static uint8_t hw_sdio_cmd3(uint32_t para,uint32_t *resp)
     uint8_t error_status;
     uint32_t response;
     SDIO_CmdInitTypeDef SDIO_CmdInitStructure;
+    
+    HW_ENTER();
 
     SDIO_CmdInitStructure.SDIO_Argument = para;
     SDIO_CmdInitStructure.SDIO_CmdIndex = SDIO_CMD3;
     SDIO_CmdInitStructure.SDIO_Response = SDIO_Response_Short;
     SDIO_CmdInitStructure.SDIO_Wait = SDIO_Wait_No;
     SDIO_CmdInitStructure.SDIO_CPSM = SDIO_CPSM_Enable;
+
     SDIO_SendCommand(&SDIO_CmdInitStructure);
 
     /* µÈ´ı·¢ËÍÍê³É */
@@ -1156,6 +1218,7 @@ static uint8_t hw_sdio_cmd3(uint32_t para,uint32_t *resp)
 
     if (HW_ERR_OK != error_status)
     {
+        HW_LEAVE();
         return error_status;
     }
 
@@ -1166,6 +1229,7 @@ static uint8_t hw_sdio_cmd3(uint32_t para,uint32_t *resp)
         *resp = response;
     }
 
+    HW_LEAVE();
     return (error_status);
 }
 
@@ -1256,6 +1320,7 @@ static uint8_t hw_sdio_cmd7(uint32_t para,uint32_t *resp)
 
     if (HW_ERR_OK != error_status)
     {
+        HW_LEAVE();
         return error_status;
     }
     /* »ñÈ¡·µ»Ø½á¹û */
@@ -1265,7 +1330,7 @@ static uint8_t hw_sdio_cmd7(uint32_t para,uint32_t *resp)
         *resp = response;
     }
 
-    HW_ENTER();
+    HW_LEAVE();
     return (error_status);
 }
 
@@ -1384,16 +1449,17 @@ static uint8_t hw_sdio_cmd53_read(uint8_t func_num,uint32_t address, uint8_t inc
     return HW_ERR_OK;
 }
 
+
 /******************************************************************************
- *	º¯ÊıÃû:	hw_sdio_cmd53_write
- * ²ÎÊı:  		func_num(IN)			-->func±àºÅ
- 				address(IN)			-->Òª¶ÁÈ¡µÄµØÖ·
- 				incr_addr(IN)			-->µØÖ·ÊÇ·ñÀÛ¼Ó
- 				buf(IN)				-->Êı¾İ·µ»Øbuffer
- 				size(IN)				-->Òª¶ÁÈ¡µÄsize
- 				cur_blk_size(IN)		-->µ±Ç°µÄfunc±àºÅµÄblock size
- * ·µ»ØÖµ: 	·µ»ØÖ´ĞĞ½á¹û
- * ÃèÊö:		Ö´ĞĞCMD53µÄwrite£¬²ÉÓÃblock modeĞ´ÏÂÈ¥
+ *	å‡½æ•°å:	hw_sdio_cmd53_write
+ * å‚æ•°:  		func_num(IN)			-->funcç¼–å·
+ 				address(IN)			-->è¦è¯»å–çš„åœ°å€
+ 				incr_addr(IN)			-->åœ°å€æ˜¯å¦ç´¯åŠ 
+ 				buf(IN)				-->æ•°æ®è¿”å›buffer
+ 				size(IN)				-->è¦è¯»å–çš„size
+ 				cur_blk_size(IN)		-->å½“å‰çš„funcç¼–å·çš„block size
+ * è¿”å›å€¼: 	è¿”å›æ‰§è¡Œç»“æœ
+ * æè¿°:		æ‰§è¡ŒCMD53çš„writeï¼Œé‡‡ç”¨block modeå†™ä¸‹å»
 ******************************************************************************/
 static uint8_t hw_sdio_cmd53_write(uint8_t func_num,uint32_t address, uint8_t incr_addr, uint8_t *buf,uint32_t size,uint16_t cur_blk_size)
 {
@@ -1407,16 +1473,16 @@ static uint8_t hw_sdio_cmd53_write(uint8_t func_num,uint32_t address, uint8_t in
     hw_memset(&DMA_InitStructure,0,sizeof(DMA_InitStructure));
 
     SDIO_ClearFlag(SDIO_FLAG_CMDREND);
-    /* 1.·¢ËÍCMD53 */
-    /* CMD53µÄÃüÁî²ÎÊı¸ñÊ½Îª */
+    /* 1.å‘é€CMD53 */
+    /* CMD53çš„å‘½ä»¤å‚æ•°æ ¼å¼ä¸º */
     /* |--RW FLAG--|--FUNC NUM--|--BLK MODE--|--OP MODE--|--REG ADDR--|--BYTE/BLK CNT--| */
     /* |--1  BYTE--|--3   BYTE--|--1   BYTE--|--1  BYTE--|--17  BYTE--|--9      BYTE --| */
-    SDIO_CmdInitStructure.SDIO_Argument = 0x80000000;			/* CMD53µÄR/W writeµÄflag */
+    SDIO_CmdInitStructure.SDIO_Argument = 0x80000000;			/* CMD53çš„R/W writeçš„flag */
     SDIO_CmdInitStructure.SDIO_Argument |= func_num << 28;	/* FUNC */
     SDIO_CmdInitStructure.SDIO_Argument |= 0x08000000;			/* Block mode */
-    SDIO_CmdInitStructure.SDIO_Argument |= incr_addr ? 0x04000000 : 0x0;	/* OP MODE :1.µİÔö 0,¹Ì¶¨µØÖ· */
+    SDIO_CmdInitStructure.SDIO_Argument |= incr_addr ? 0x04000000 : 0x0;	/* OP MODE :1.é€’å¢ 0,å›ºå®šåœ°å€ */
 
-    SDIO_CmdInitStructure.SDIO_Argument |= address << 9;		/* REG ADDR,ÒªĞ´ÈëµÄµØÖ· */
+    SDIO_CmdInitStructure.SDIO_Argument |= address << 9;		/* REG ADDR,è¦å†™å…¥çš„åœ°å€ */
 
     if(remain_size%cur_blk_size)
     {
@@ -1441,7 +1507,7 @@ static uint8_t hw_sdio_cmd53_write(uint8_t func_num,uint32_t address, uint8_t in
         return  HW_ERR_SDIO_CMD53_FAIL;
     }
     SDIO_ClearFlag(SDIO_FLAG_CMDREND);
-    /* 2.Æô¶¯DMA */
+    /* 2.å¯åŠ¨DMA */
     /* DMA2 Channel4 enable */
 
     DMA_DeInit(DMA2_Channel4);
@@ -1473,7 +1539,7 @@ static uint8_t hw_sdio_cmd53_write(uint8_t func_num,uint32_t address, uint8_t in
     DMA_Init(DMA2_Channel4, &DMA_InitStructure);
     DMA_Cmd(DMA2_Channel4, ENABLE);
 
-    /* 3.ÅäÖÃSDIO data½á¹¹Ìå */
+    /* 3.é…ç½®SDIO dataç»“æ„ä½“ */
     SDIO_DataInitStructure.SDIO_DataTimeOut = SDIO_24M_DATATIMEOUT;
 
     if(remain_size%cur_blk_size)
@@ -1495,12 +1561,12 @@ static uint8_t hw_sdio_cmd53_write(uint8_t func_num,uint32_t address, uint8_t in
     SDIO_DataConfig(&SDIO_DataInitStructure);
 
 
-    while (DMA_GetFlagStatus(DMA2_FLAG_TC4) == RESET); /* µÈ´ıDMA·¢ËÍ³É¹¦ */
-    SDIO_ClearFlag(SDIO_FLAG_DATAEND);						/* Çå³ı·¢ËÍÍê³É±êÖ¾ */
-    SDIO_ClearFlag(SDIO_FLAG_DBCKEND);						/* Çå³ı·¢ËÍ/½ÓÊÕÊı¾İ¿é */
-    DMA_ClearFlag(DMA2_FLAG_TC4);								/* Çå³ıDMA2 channel4·¢ËÍÍê³ÉµÄ±êÖ¾ */
-    DMA_DeInit(DMA2_Channel4);									/* ·´³õÊ¼»¯DMA2 channel4 */
-    DMA_Cmd(DMA2_Channel4, DISABLE);							/* ¹Ø±ÕDMA2 channel4 */
+    while (DMA_GetFlagStatus(DMA2_FLAG_TC4) == RESET); /* ç­‰å¾…DMAå‘é€æˆåŠŸ */
+    SDIO_ClearFlag(SDIO_FLAG_DATAEND);						/* æ¸…é™¤å‘é€å®Œæˆæ ‡å¿— */
+    SDIO_ClearFlag(SDIO_FLAG_DBCKEND);						/* æ¸…é™¤å‘é€/æ¥æ”¶æ•°æ®å— */
+    DMA_ClearFlag(DMA2_FLAG_TC4);								/* æ¸…é™¤DMA2 channel4å‘é€å®Œæˆçš„æ ‡å¿— */
+    DMA_DeInit(DMA2_Channel4);									/* ååˆå§‹åŒ–DMA2 channel4 */
+    DMA_Cmd(DMA2_Channel4, DISABLE);							/* å…³é—­DMA2 channel4 */
 
 
 
@@ -1544,7 +1610,7 @@ void SDIO_IRQHandler(void)
     {
         /* ·¢ÉúÃüÁîCRC´íÎó */
         SDIO_ClearITPendingBit(SDIO_IT_CCRCFAIL);
-        HW_DEBUG("SDIO_IRQHandler:SDIO_IT_CCRCFAIL OCCUR\n");
+        HW_DEBUG("==> SDIO_IRQHandler:SDIO_IT_CCRCFAIL OCCUR\n");
     }
     if(SDIO_GetITStatus(SDIO_IT_DCRCFAIL) == SET)
     {
