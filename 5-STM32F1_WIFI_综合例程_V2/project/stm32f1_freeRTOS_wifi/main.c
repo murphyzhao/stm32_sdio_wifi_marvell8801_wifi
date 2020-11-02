@@ -1096,15 +1096,6 @@ int lnwlan_sdio_readframes(void)
         HW_DEBUG("SDIO master read data failed! \n");
         return ret;
     }
-    
-    // send 0x68 to clear data1 interrupt
-    ret = hw_sdio_cmd52(SDIO_EXCU_READ, SDIO_FUNC_1, URSDIO_FUNC1_HOST_S2M_MB_ENA_REG1, 0, &rsp);
-    if (ret) {
-        HW_DEBUG("SDIO master send 0x68 failed! \n");
-        return ret;
-    }
-    
-    HW_DEBUG("SDIO master send 0x68 rsp:0x%x \n", rsp);
 
     rcv_len = (u16)(test_recv_buf[0] | ((test_recv_buf[1]&0x0f) << 8));
     if(rcv_len > size) {
@@ -1115,12 +1106,15 @@ int lnwlan_sdio_readframes(void)
 
     uint8_t val = 0x03;
 
-//    ret = hw_sdio_cmd52(SDIO_EXCU_WRITE, SDIO_FUNC_1, URSDIO_FUNC1_HOST_INT_ENA, val, &rsp);
-//    if (HW_ERR_OK != ret)
-//    {
-//        printf("L:%d, hw_sdio_cmd52 error\r\n", __LINE__);
-//    }
-//    printf("CMD52 write 0x14 rsp:0x%x\r\n", rsp);
+    // send 0x68 to clear data1 interrupt
+    ret = hw_sdio_cmd52(SDIO_EXCU_READ, SDIO_FUNC_1, URSDIO_FUNC1_HOST_S2M_MB_ENA_REG1, 0, &rsp);
+    if (ret) {
+        HW_DEBUG("SDIO master send 0x68 failed! \n");
+        return ret;
+    }
+    
+    HW_DEBUG("SDIO master send 0x68 rsp:0x%x \n", rsp);
+
 done:
     return ret;
 }
@@ -1168,7 +1162,7 @@ void wifi_process_task(void *para)
     }
 }
 
-static uint8_t test_buf[256 + 4] = "DataFromHost";
+static uint8_t test_buf[3*512] = "DataFromHost";
 
 void wifi_start_task(void *arg)
 {
@@ -1183,17 +1177,19 @@ void wifi_start_task(void *arg)
         printf("waiting:%d\r\n", send_cnt);
 
 #if 1
-        for (int i = 0; i < sizeof(test_buf); i++)
-        {
-            test_buf[i] = i;
-        }
+//        for (int i = 0; i < sizeof(test_buf); i++)
+//        {
+//            test_buf[i] = i;
+//        }
+        
+        memset(test_buf, 0xA5, sizeof(test_buf));
 
-        send_data_len = send_cnt;
+        send_data_len = 3*512 - 2;
         test_buf[0] = (uint8_t)(send_data_len&0x000000FF);
         test_buf[1] = (uint8_t)((send_data_len >> 8) & 0x0000000F);
         test_buf[2] = (uint8_t)send_cnt;
         test_buf[3] = 'M';
-        sdiohost_request_bytes(SDIOH_WRITE, test_buf, send_data_len + 2);
+        sdiohost_request_bytes(SDIOH_WRITE, test_buf, 3*512);
 #endif
     }
 }

@@ -153,7 +153,7 @@ uint8_t hw_sdio_init()
     // func0 cccr: 0x07
     hw_sdio_set_bus_width(SDIO_BUS_WIDTH_4);
 
-//    SDIO_InitStructure.SDIO_ClockDiv = SDIO_CLK_24MHZ;
+    SDIO_InitStructure.SDIO_ClockDiv = SDIO_CLK_400KHZ;//SDIO_CLK_24MHZ;
     SDIO_InitStructure.SDIO_BusWide = SDIO_BusWide_4b;
     SDIO_Init(&SDIO_InitStructure);
 
